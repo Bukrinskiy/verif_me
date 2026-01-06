@@ -33,20 +33,59 @@ try {
     require __DIR__ . '/../db.php';
     require __DIR__ . '/../lib/db_functions.php';
     require __DIR__ . '/../lib/schema_bootstrap.php';
+    require __DIR__ . '/../lib/openai.php';
 
     $pdo = getPdo();
     ensureSchema($pdo);
 
     $dialogId = createDialog($pdo, $telegramUserId);
     addMessage($pdo, $dialogId, 'user', $text);
-    require __DIR__ . '/../lib/openai.php';
-    $answer = askOpenAI($text);
-    addMessage($pdo, $dialogId, 'assistant', $answer);
+    $analysisResponse = analyzeTextWithAI($text);
+
+    $rawJson = $analysisResponse['raw_json'] ?? null;
+    if (!is_string($rawJson) || trim($rawJson) === '') {
+        throw new RuntimeException('OpenAI returned an empty response.');
+    }
+
+    addMessage($pdo, $dialogId, 'assistant', $rawJson);
+
+    $analysis = json_decode($rawJson, true);
+    if (!is_array($analysis) || json_last_error() !== JSON_ERROR_NONE) {
+        throw new RuntimeException('OpenAI returned invalid JSON.');
+    }
+
+    $verdict = $analysis['verdict'] ?? null;
+    $score = $analysis['score'] ?? null;
+    $signals = $analysis['signals'] ?? null;
+    $summary = $analysis['summary'] ?? null;
+
+    $validVerdicts = ['скорее ложь', 'скорее правда'];
+    $signalsValid = is_array($signals) && array_reduce(
+        $signals,
+        static fn ($carry, $item) => $carry && is_string($item),
+        true
+    );
+
+    if (!in_array($verdict, $validVerdicts, true)
+        || !is_int($score)
+        || $score < 1
+        || $score > 100
+        || !$signalsValid
+        || !is_string($summary)
+        || trim($summary) === '') {
+        throw new RuntimeException('OpenAI returned an invalid analysis payload.');
+    }
+
     finishDialog($pdo, $dialogId, 'done');
 
     echo json_encode([
         'dialog_id' => $dialogId,
-        'status' => 'done',
+        'analysis' => [
+            'verdict' => $verdict,
+            'score' => $score,
+            'signals' => $signals,
+            'summary' => $summary,
+        ],
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 } catch (JsonException | InvalidArgumentException $exception) {
     http_response_code(400);

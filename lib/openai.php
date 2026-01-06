@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-function askOpenAI(string $userText, array $opts = []): string
+function analyzeTextWithAI(string $text): array
 {
     $config = require __DIR__ . '/../config.php';
 
@@ -11,12 +11,35 @@ function askOpenAI(string $userText, array $opts = []): string
         throw new RuntimeException('OpenAI API key is not set in config.php');
     }
 
-    $model = $config['openai_model'] ?? 'gpt-4o-mini';
-    $systemPrompt = $config['openai_system_prompt'] ?? '';
+    $systemPrompt = <<<'PROMPT'
+"Ты — AI-детектор лжи.
+Твоя задача — анализировать текст пользователя и возвращать ТОЛЬКО JSON строго следующего формата:
+
+{
+  \"verdict\": \"скорее ложь\" | \"скорее правда\",
+  \"score\": число от 1 до 100,
+  \"signals\": массив строк с выявленными признаками,
+  \"summary\": краткое объяснение вывода
+}
+
+Интерпретация score:
+- 1–20: высокая вероятность правды
+- 21–40: скорее правда
+- 41–60: сомнительно
+- 61–80: скорее ложь
+- 81–100: высокая вероятность лжи
+
+Правила:
+- Никакого текста вне JSON
+- Никакого markdown
+- Никаких пояснений
+- Если данных недостаточно — score = 50 и verdict = \"скорее правда\""
+PROMPT;
+
     $timeout = (int) ($config['openai_timeout_sec'] ?? 30);
 
     $payload = [
-        'model' => $model,
+        'model' => 'gpt-4o-mini',
         'input' => [
             [
                 'role' => 'system',
@@ -24,8 +47,12 @@ function askOpenAI(string $userText, array $opts = []): string
             ],
             [
                 'role' => 'user',
-                'content' => $userText,
+                'content' => $text,
             ],
+        ],
+        'temperature' => 0.2,
+        'response_format' => [
+            'type' => 'json_object',
         ],
     ];
 
@@ -62,12 +89,12 @@ function askOpenAI(string $userText, array $opts = []): string
     $data = json_decode((string) $response, true, 512, JSON_THROW_ON_ERROR);
 
     if (isset($data['output_text']) && is_string($data['output_text'])) {
-        return $data['output_text'];
+        return ['raw_json' => $data['output_text']];
     }
 
     $fallbackText = $data['output'][0]['content'][0]['text'] ?? null;
     if (is_string($fallbackText)) {
-        return $fallbackText;
+        return ['raw_json' => $fallbackText];
     }
 
     throw new RuntimeException('OpenAI response has no text output');
