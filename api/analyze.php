@@ -78,6 +78,8 @@ try {
 
     finishDialog($pdo, $dialogId, 'done');
 
+    $formattedAnswer = formatEmojiAnswer($verdict, $score, $signals, $summary);
+
     echo json_encode([
         'dialog_id' => $dialogId,
         'analysis' => [
@@ -86,6 +88,7 @@ try {
             'signals' => $signals,
             'summary' => $summary,
         ],
+        'answer' => $formattedAnswer,
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 } catch (JsonException | InvalidArgumentException $exception) {
     http_response_code(400);
@@ -104,4 +107,30 @@ try {
     echo json_encode([
         'error' => $exception->getMessage(),
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+}
+
+function formatEmojiAnswer(string $verdict, int $score, array $signals, string $summary): string
+{
+    $score = max(1, min(100, $score));
+    $signals = array_values(array_filter($signals, static fn ($item) => is_string($item) && trim($item) !== ''));
+    $signals = array_slice($signals, 0, 6);
+
+    $lines = [
+        '🧠 <b>Вердикт:</b> ' . htmlspecialchars($verdict, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+        '📊 <b>Скор:</b> ' . $score . ' / 100',
+    ];
+
+    if ($signals !== []) {
+        $lines[] = '';
+        $lines[] = '❗ <b>Ключевые признаки:</b>';
+        foreach ($signals as $signal) {
+            $lines[] = '• ' . htmlspecialchars($signal, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+    }
+
+    $lines[] = '';
+    $lines[] = '📝 <b>Пояснение:</b>';
+    $lines[] = htmlspecialchars($summary, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+    return implode("\n", $lines);
 }
