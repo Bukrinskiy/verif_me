@@ -81,6 +81,15 @@ if (!is_string($text) && !is_array($voice) && !is_array($audio)) {
 }
 
 if (is_string($text)) {
+    $trimmedText = trim($text);
+    if ($trimmedText === '' || preg_match('/^\\/start(\\s|$)/', $trimmedText) === 1) {
+        tgApi('sendMessage', [
+            'chat_id' => $chatId,
+            'text' => 'Пришлите аудио или текст для разбора',
+        ], $config);
+        exit;
+    }
+
     try {
         $analysis = callAnalyze($telegramUserId, $text, $config);
 
