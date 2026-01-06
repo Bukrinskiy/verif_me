@@ -59,7 +59,7 @@ try {
     $signals = $analysis['signals'] ?? null;
     $summary = $analysis['summary'] ?? null;
 
-    $validVerdicts = ['скорее ложь', 'скорее правда'];
+    $validVerdicts = ['скорее ложь', 'скорее правда', 'не удалось проанализировать'];
     $signalsValid = is_array($signals) && array_reduce(
         $signals,
         static fn ($carry, $item) => $carry && is_string($item),
@@ -115,10 +115,14 @@ function formatEmojiAnswer(string $verdict, int $score, array $signals, string $
     $signals = array_values(array_filter($signals, static fn ($item) => is_string($item) && trim($item) !== ''));
     $signals = array_slice($signals, 0, 6);
 
-    $lines = [
-        '🧠 <b>Вердикт:</b> ' . htmlspecialchars($verdict, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
-        '📊 <b>Скор:</b> ' . $score . ' / 100',
-    ];
+    $lines = [];
+
+    if ($verdict === 'не удалось проанализировать') {
+        $lines[] = '⚠️ <b>Не удалось проанализировать</b>';
+    } else {
+        $lines[] = '🧠 <b>Вердикт:</b> ' . htmlspecialchars($verdict, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $lines[] = '📊 <b>Скор:</b> ' . $score . ' / 100';
+    }
 
     if ($signals !== []) {
         $lines[] = '';

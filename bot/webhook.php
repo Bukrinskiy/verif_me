@@ -229,8 +229,12 @@ function renderTelegramAnswer(array $analysis, ?string $transcribedText = null):
         $lines[] = '';
     }
 
-    $lines[] = '🧠 <b>Вердикт:</b> ' . $verdict;
-    $lines[] = '📊 <b>Скор:</b> ' . $score . ' / 100';
+    if ($verdict === 'не удалось проанализировать') {
+        $lines[] = '⚠️ <b>Не удалось проанализировать</b>';
+    } else {
+        $lines[] = '🧠 <b>Вердикт:</b> ' . $verdict;
+        $lines[] = '📊 <b>Скор:</b> ' . $score . ' / 100';
+    }
 
     if ($escapedSignals !== []) {
         $lines[] = '';
