@@ -13,6 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 try {
+    $dialogId = null;
+    $pdo = null;
+
     $rawInput = file_get_contents('php://input');
     $payload = json_decode($rawInput ?: '', true, 512, JSON_THROW_ON_ERROR);
 
@@ -36,7 +39,9 @@ try {
 
     $dialogId = createDialog($pdo, $telegramUserId);
     addMessage($pdo, $dialogId, 'user', $text);
-    addMessage($pdo, $dialogId, 'assistant', 'ok');
+    require __DIR__ . '/../lib/openai.php';
+    $answer = askOpenAI($text);
+    addMessage($pdo, $dialogId, 'assistant', $answer);
     finishDialog($pdo, $dialogId, 'done');
 
     echo json_encode([
@@ -49,6 +54,13 @@ try {
         'error' => $exception->getMessage(),
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 } catch (Throwable $exception) {
+    if ($dialogId !== null && $pdo instanceof PDO) {
+        try {
+            finishDialog($pdo, $dialogId, 'error');
+        } catch (Throwable $finishException) {
+        }
+    }
+
     http_response_code(500);
     echo json_encode([
         'error' => $exception->getMessage(),
