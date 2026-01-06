@@ -9,6 +9,7 @@ try {
     require __DIR__ . '/lib/db_functions.php';
 
     $pdo = getPdo();
+    ensureSchema($pdo);
 
     $telegramUserId = 123456;
     $userText = 'test message';
