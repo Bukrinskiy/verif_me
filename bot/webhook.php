@@ -88,19 +88,13 @@ if (is_string($text)) {
             throw new RuntimeException('Analyze failed.');
         }
 
-        $lines = [
-            'Вердикт: ' . $analysis['verdict'],
-            'Скор: ' . $analysis['score'] . '/100',
-            'Коротко: ' . $analysis['summary'],
-        ];
-
-        if (!empty($analysis['signals'])) {
-            $lines[] = 'Сигналы: ' . implode(', ', $analysis['signals']);
-        }
+        $responseText = renderTelegramAnswer($analysis);
 
         tgApi('sendMessage', [
             'chat_id' => $chatId,
-            'text' => implode("\n", $lines),
+            'text' => $responseText,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
         ], $config);
     } catch (Throwable $exception) {
         tgApi('sendMessage', [
@@ -173,20 +167,13 @@ try {
         throw new RuntimeException('Analyze failed.');
     }
 
-    $lines = [
-        'Распознал: ' . makeSnippet($transcription, 120),
-        'Вердикт: ' . $analysis['verdict'],
-        'Скор: ' . $analysis['score'] . '/100',
-        'Коротко: ' . $analysis['summary'],
-    ];
-
-    if (!empty($analysis['signals'])) {
-        $lines[] = 'Сигналы: ' . implode(', ', $analysis['signals']);
-    }
+    $responseText = renderTelegramAnswer($analysis, $transcription);
 
     tgApi('sendMessage', [
         'chat_id' => $chatId,
-        'text' => implode("\n", $lines),
+        'text' => $responseText,
+        'parse_mode' => 'HTML',
+        'disable_web_page_preview' => true,
     ], $config);
 } catch (Throwable $exception) {
     tgApi('sendMessage', [
@@ -197,6 +184,63 @@ try {
     if (is_string($tempFile) && $tempFile !== '' && file_exists($tempFile)) {
         unlink($tempFile);
     }
+}
+
+function renderTelegramAnswer(array $analysis, ?string $transcribedText = null): string
+{
+    $verdict = escapeTelegramHtml((string) ($analysis['verdict'] ?? ''));
+    $summary = escapeTelegramHtml((string) ($analysis['summary'] ?? ''));
+    $score = (int) ($analysis['score'] ?? 0);
+
+    if ($score < 1) {
+        $score = 1;
+    } elseif ($score > 100) {
+        $score = 100;
+    }
+
+    $signals = $analysis['signals'] ?? [];
+    if (!is_array($signals)) {
+        $signals = [];
+    }
+
+    $signals = array_values(array_filter($signals, static fn ($item) => is_string($item) && trim($item) !== ''));
+    $signals = array_slice($signals, 0, 6);
+    $escapedSignals = array_map(
+        static fn (string $item) => escapeTelegramHtml($item),
+        $signals
+    );
+
+    $lines = [];
+
+    if (is_string($transcribedText)) {
+        $snippet = makeSnippet($transcribedText, 200);
+        $snippet = escapeTelegramHtml($snippet);
+        $lines[] = '🎧 <i>Распознал:</i>';
+        $lines[] = '“' . $snippet . '”';
+        $lines[] = '';
+    }
+
+    $lines[] = '🧠 <b>Вердикт:</b> ' . $verdict;
+    $lines[] = '📊 <b>Скор:</b> ' . $score . ' / 100';
+
+    if ($escapedSignals !== []) {
+        $lines[] = '';
+        $lines[] = '❗ <b>Ключевые признаки:</b>';
+        foreach ($escapedSignals as $signal) {
+            $lines[] = '• ' . $signal;
+        }
+    }
+
+    $lines[] = '';
+    $lines[] = '📝 <b>Пояснение:</b>';
+    $lines[] = $summary;
+
+    return implode("\n", $lines);
+}
+
+function escapeTelegramHtml(string $text): string
+{
+    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
 function tgApi(string $method, array $payload, array $config): ?array
