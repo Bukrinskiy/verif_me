@@ -16,6 +16,15 @@ if (!is_array($config)) {
     exit;
 }
 
+$rootConfig = [];
+$rootConfigPath = dirname(__DIR__) . '/config.php';
+if (file_exists($rootConfigPath)) {
+    $rootConfig = require $rootConfigPath;
+    if (!is_array($rootConfig)) {
+        $rootConfig = [];
+    }
+}
+
 $webhookSecret = $config['webhook_secret'] ?? '';
 if (is_string($webhookSecret) && $webhookSecret !== '') {
     $incomingSecret = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '';
@@ -60,7 +69,10 @@ if (!is_int($telegramUserId)) {
 }
 
 $text = $message['text'] ?? null;
-if (!is_string($text)) {
+$voice = $message['voice'] ?? null;
+$audio = $message['audio'] ?? null;
+
+if (!is_string($text) && !is_array($voice) && !is_array($audio)) {
     tgApi('sendMessage', [
         'chat_id' => $chatId,
         'text' => 'Пока понимаю только текст',
@@ -68,14 +80,101 @@ if (!is_string($text)) {
     exit;
 }
 
-try {
-    $analysis = callAnalyze($telegramUserId, $text, $config);
+if (is_string($text)) {
+    try {
+        $analysis = callAnalyze($telegramUserId, $text, $config);
 
+        if ($analysis === null) {
+            throw new RuntimeException('Analyze failed.');
+        }
+
+        $lines = [
+            'Вердикт: ' . $analysis['verdict'],
+            'Скор: ' . $analysis['score'] . '/100',
+            'Коротко: ' . $analysis['summary'],
+        ];
+
+        if (!empty($analysis['signals'])) {
+            $lines[] = 'Сигналы: ' . implode(', ', $analysis['signals']);
+        }
+
+        tgApi('sendMessage', [
+            'chat_id' => $chatId,
+            'text' => implode("\n", $lines),
+        ], $config);
+    } catch (Throwable $exception) {
+        tgApi('sendMessage', [
+            'chat_id' => $chatId,
+            'text' => 'Ошибка обработки, попробуй ещё раз',
+        ], $config);
+    }
+
+    exit;
+}
+
+$audioPayload = is_array($voice) ? $voice : (is_array($audio) ? $audio : null);
+$isVoice = is_array($voice);
+$fileId = is_array($audioPayload) ? ($audioPayload['file_id'] ?? null) : null;
+$fileSize = is_array($audioPayload) ? ($audioPayload['file_size'] ?? null) : null;
+$maxVoiceBytes = $config['max_voice_bytes'] ?? 15000000;
+if (!is_int($maxVoiceBytes) || $maxVoiceBytes <= 0) {
+    $maxVoiceBytes = 15000000;
+}
+
+if (!is_string($fileId) || $fileId === '') {
+    tgApi('sendMessage', [
+        'chat_id' => $chatId,
+        'text' => 'Ошибка обработки, попробуй ещё раз',
+    ], $config);
+    exit;
+}
+
+if (is_int($fileSize) && $fileSize > $maxVoiceBytes) {
+    tgApi('sendMessage', [
+        'chat_id' => $chatId,
+        'text' => 'Слишком длинное аудио для MVP',
+    ], $config);
+    exit;
+}
+
+tgApi('sendMessage', [
+    'chat_id' => $chatId,
+    'text' => 'Распознаю аудио...',
+], $config);
+
+$tempFile = null;
+try {
+    $filePath = tgGetFilePath($fileId, $config);
+    if ($filePath === null) {
+        throw new RuntimeException('Missing file path.');
+    }
+
+    $tempFile = downloadTelegramFile($filePath, $isVoice, $config);
+    if ($tempFile === null) {
+        throw new RuntimeException('Download failed.');
+    }
+
+    $transcription = transcribeAudio($tempFile, $config, $rootConfig);
+    if ($transcription === null) {
+        throw new RuntimeException('Transcription failed.');
+    }
+
+    $transcription = trim($transcription);
+    if ($transcription === '') {
+        tgApi('sendMessage', [
+            'chat_id' => $chatId,
+            'text' => 'Не смог распознать речь, попробуй ещё раз',
+        ], $config);
+        exit;
+    }
+
+    $analysis = callAnalyze($telegramUserId, $transcription, $config);
     if ($analysis === null) {
         throw new RuntimeException('Analyze failed.');
     }
 
     $lines = [
+        'Распознал: ' . makeSnippet($transcription, 120),
         'Вердикт: ' . $analysis['verdict'],
         'Скор: ' . $analysis['score'] . '/100',
         'Коротко: ' . $analysis['summary'],
@@ -94,6 +193,10 @@ try {
         'chat_id' => $chatId,
         'text' => 'Ошибка обработки, попробуй ещё раз',
     ], $config);
+} finally {
+    if (is_string($tempFile) && $tempFile !== '' && file_exists($tempFile)) {
+        unlink($tempFile);
+    }
 }
 
 function tgApi(string $method, array $payload, array $config): ?array
@@ -131,6 +234,130 @@ function tgApi(string $method, array $payload, array $config): ?array
     }
 
     return $decoded;
+}
+
+function tgGetFilePath(string $fileId, array $config): ?string
+{
+    $response = tgApi('getFile', ['file_id' => $fileId], $config);
+    if (!is_array($response)) {
+        return null;
+    }
+
+    $result = $response['result'] ?? null;
+    if (!is_array($result)) {
+        return null;
+    }
+
+    $filePath = $result['file_path'] ?? null;
+    if (!is_string($filePath) || $filePath === '') {
+        return null;
+    }
+
+    return $filePath;
+}
+
+function downloadTelegramFile(string $filePath, bool $isVoice, array $config): ?string
+{
+    $token = $config['bot_token'] ?? '';
+    if (!is_string($token) || $token === '') {
+        return null;
+    }
+
+    $extension = $isVoice ? 'ogg' : (pathinfo($filePath, PATHINFO_EXTENSION) ?: 'ogg');
+    $tempBase = tempnam(sys_get_temp_dir(), 'tg_voice_');
+    if ($tempBase === false) {
+        return null;
+    }
+
+    $tempFile = $tempBase . '.' . $extension;
+    rename($tempBase, $tempFile);
+
+    $url = 'https://api.telegram.org/file/bot' . $token . '/' . ltrim($filePath, '/');
+    $fileHandle = fopen($tempFile, 'wb');
+    if ($fileHandle === false) {
+        unlink($tempFile);
+        return null;
+    }
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_FILE, $fileHandle);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    $success = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    fclose($fileHandle);
+
+    if ($success === false || $httpCode < 200 || $httpCode >= 300) {
+        unlink($tempFile);
+        return null;
+    }
+
+    return $tempFile;
+}
+
+function transcribeAudio(string $filePath, array $config, array $rootConfig): ?string
+{
+    $openaiApiKey = $config['openai_api_key'] ?? ($rootConfig['openai_api_key'] ?? '');
+    if (!is_string($openaiApiKey) || $openaiApiKey === '') {
+        return null;
+    }
+
+    $model = $config['openai_transcribe_model'] ?? 'gpt-4o-mini-transcribe';
+    $language = $config['openai_transcribe_language'] ?? 'ru';
+
+    $fields = [
+        'file' => curl_file_create($filePath),
+        'model' => $model,
+    ];
+
+    if (is_string($language) && $language !== '') {
+        $fields['language'] = $language;
+    }
+
+    $ch = curl_init('https://api.openai.com/v1/audio/transcriptions');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $openaiApiKey,
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 40);
+
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false || $httpCode < 200 || $httpCode >= 300) {
+        return null;
+    }
+
+    $decoded = json_decode($response, true);
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    $text = $decoded['text'] ?? null;
+    if (!is_string($text)) {
+        return null;
+    }
+
+    return $text;
+}
+
+function makeSnippet(string $text, int $limit): string
+{
+    $text = trim($text);
+    if ($text === '' || $limit <= 0) {
+        return '';
+    }
+
+    $length = mb_strlen($text, 'UTF-8');
+    if ($length <= $limit) {
+        return $text;
+    }
+
+    return mb_substr($text, 0, $limit, 'UTF-8') . '…';
 }
 
 function callAnalyze(int $telegramUserId, string $text, array $config): ?array

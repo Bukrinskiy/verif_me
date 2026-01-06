@@ -43,6 +43,11 @@ https://api.telegram.org/bot<TOKEN>/setWebhook?url=<WEBHOOK_URL>
 1. Отправьте текстовое сообщение вашему боту в Telegram.
 2. Должен прийти ответ с вердиктом, скором и кратким резюме.
 
+### Voice messages
+- Бот поддерживает voice-сообщения (OGG/OPUS), они транскрибируются в текст перед анализом.
+- Используется OpenAI transcription model (по умолчанию `gpt-4o-mini-transcribe`).
+- Как тестировать: отправьте voice-сообщение вашему боту в Telegram.
+
 ---
 
 ## Ключевые правила MVP
