@@ -11,30 +11,14 @@ function analyzeTextWithAI(string $text): array
         throw new RuntimeException('OpenAI API key is not set in config.php');
     }
 
-    $systemPrompt = <<<'PROMPT'
-"Ты — AI-детектор лжи.
-Твоя задача — анализировать текст пользователя и возвращать ТОЛЬКО JSON строго следующего формата:
-
-{
-  \"verdict\": \"скорее ложь\" | \"скорее правда\",
-  \"score\": число от 1 до 100,
-  \"signals\": массив строк с выявленными признаками,
-  \"summary\": краткое объяснение вывода
-}
-
-Интерпретация score:
-- 1–20: высокая вероятность правды
-- 21–40: скорее правда
-- 41–60: сомнительно
-- 61–80: скорее ложь
-- 81–100: высокая вероятность лжи
-
-Правила:
-- Никакого текста вне JSON
-- Никакого markdown
-- Никаких пояснений
-- Если данных недостаточно — score = 50 и verdict = \"скорее правда\""
-PROMPT;
+    $promptPath = __DIR__ . '/../prompts/main_prompt.txt';
+    $systemPrompt = file_get_contents($promptPath);
+    if ($systemPrompt === false) {
+        throw new RuntimeException(sprintf('OpenAI prompt file not found: %s', $promptPath));
+    }
+    if (trim($systemPrompt) === '') {
+        throw new RuntimeException(sprintf('OpenAI prompt file is empty: %s', $promptPath));
+    }
 
     $timeout = (int) ($config['openai_timeout_sec'] ?? 30);
 
