@@ -52,7 +52,9 @@ PROMPT;
         ],
         'temperature' => 0.2,
         'text' => [
-            'format' => 'json',
+            'format' => [
+                'type' => 'json_object',
+            ],
         ],
     ];
 
