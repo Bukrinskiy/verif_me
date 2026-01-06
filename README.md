@@ -21,6 +21,30 @@
 
 ---
 
+## Telegram webhook-бот
+
+### Как создать `bot/config.php` из примера
+1. Скопируйте файл:
+   ```bash
+   cp bot/config.example.php bot/config.php
+   ```
+2. Заполните значения:
+   - `bot_token` — токен Telegram-бота.
+   - `api_base_url` — базовый URL вашего проекта (по умолчанию `https://seranking.store/codex`).
+   - `webhook_secret` — опциональный секрет для проверки заголовка `X-Telegram-Bot-Api-Secret-Token`.
+
+### Как установить webhook
+Вызовите (подставьте токен и URL):
+```
+https://api.telegram.org/bot<TOKEN>/setWebhook?url=<WEBHOOK_URL>
+```
+
+### Как проверить
+1. Отправьте текстовое сообщение вашему боту в Telegram.
+2. Должен прийти ответ с вердиктом, скором и кратким резюме.
+
+---
+
 ## Ключевые правила MVP
 - Один запрос пользователя = один новый диалог
 - Диалог нельзя продолжать, дополнять или редактировать
