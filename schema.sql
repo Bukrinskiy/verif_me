@@ -2,6 +2,7 @@ CREATE TABLE dialogs (
   id INT AUTO_INCREMENT PRIMARY KEY,
   telegram_user_id BIGINT NOT NULL,
   status ENUM('done', 'error') NOT NULL,
+  welcomed TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   finished_at DATETIME NULL
 );

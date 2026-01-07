@@ -28,29 +28,41 @@ if (!function_exists('ensureSchema')) {
             }
         }
 
-        if ($missingTables === []) {
-            return;
+        if ($missingTables !== []) {
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS dialogs (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  telegram_user_id BIGINT NOT NULL,
+                  status ENUM('done', 'error') NOT NULL,
+                  welcomed TINYINT(1) NOT NULL DEFAULT 0,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  finished_at DATETIME NULL
+                )"
+            );
+
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS messages (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  dialog_id INT NOT NULL,
+                  role ENUM('user', 'assistant', 'system') NOT NULL,
+                  content TEXT NOT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  FOREIGN KEY (dialog_id) REFERENCES dialogs(id)
+                )"
+            );
         }
 
-        $pdo->exec(
-            "CREATE TABLE IF NOT EXISTS dialogs (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              telegram_user_id BIGINT NOT NULL,
-              status ENUM('done', 'error') NOT NULL,
-              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              finished_at DATETIME NULL
-            )"
+        $columnStmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column'
         );
-
-        $pdo->exec(
-            "CREATE TABLE IF NOT EXISTS messages (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              dialog_id INT NOT NULL,
-              role ENUM('user', 'assistant', 'system') NOT NULL,
-              content TEXT NOT NULL,
-              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (dialog_id) REFERENCES dialogs(id)
-            )"
-        );
+        $columnStmt->execute([
+            'schema' => $database,
+            'table' => 'dialogs',
+            'column' => 'welcomed',
+        ]);
+        $hasColumn = (int) $columnStmt->fetchColumn();
+        if ($hasColumn === 0) {
+            $pdo->exec('ALTER TABLE dialogs ADD COLUMN welcomed TINYINT(1) NOT NULL DEFAULT 0');
+        }
     }
 }
