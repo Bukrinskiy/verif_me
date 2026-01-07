@@ -71,6 +71,23 @@ if (!is_int($telegramUserId)) {
 $text = $message['text'] ?? null;
 $voice = $message['voice'] ?? null;
 $audio = $message['audio'] ?? null;
+$welcomeText = $config['welcome_text'] ?? <<<TEXT
+👋 Привет.
+
+Я анализирую речь и показываю,
+где слова звучат не так, как должны звучать при правде.
+
+🧪 Я ищу:
+— противоречия и логические разрывы
+— признаки манипуляции
+— нестыковки в подаче
+— неуверенность в формулировках
+— резкие смены уверенности
+— дрожь и напряжение в голосе 🎤
+
+📩 Отправь текст или голосовое сообщение —
+и посмотри результат.
+TEXT;
 
 if (!is_string($text) && !is_array($voice) && !is_array($audio)) {
     tgApi('sendMessage', [
@@ -80,14 +97,49 @@ if (!is_string($text) && !is_array($voice) && !is_array($audio)) {
     exit;
 }
 
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../lib/schema_bootstrap.php';
+
+$pdo = null;
+try {
+    $pdo = getPdo();
+    ensureSchema($pdo);
+} catch (Throwable $exception) {
+    tgApi('sendMessage', [
+        'chat_id' => $chatId,
+        'text' => 'Ошибка обработки, попробуй ещё раз',
+    ], $config);
+    exit;
+}
+
+$lastWelcomed = fetchLastWelcomed($pdo, $telegramUserId);
+$hasWelcomed = $lastWelcomed === 1;
+
 if (is_string($text)) {
     $trimmedText = trim($text);
-    if ($trimmedText === '' || preg_match('/^\\/start(\\s|$)/', $trimmedText) === 1) {
+    if ($trimmedText === '') {
         tgApi('sendMessage', [
             'chat_id' => $chatId,
             'text' => 'Пришлите аудио или текст для разбора',
         ], $config);
         exit;
+    }
+
+    if (preg_match('/^\\/start(\\s|$)/', $trimmedText) === 1) {
+        $textToSend = $hasWelcomed ? 'Пришлите аудио или текст для разбора' : $welcomeText;
+        tgApi('sendMessage', [
+            'chat_id' => $chatId,
+            'text' => $textToSend,
+        ], $config);
+        exit;
+    }
+
+    if (!$hasWelcomed) {
+        tgApi('sendMessage', [
+            'chat_id' => $chatId,
+            'text' => $welcomeText,
+        ], $config);
+        $hasWelcomed = true;
     }
 
     try {
@@ -138,6 +190,14 @@ if (is_int($fileSize) && $fileSize > $maxVoiceBytes) {
         'text' => 'Слишком длинное аудио для MVP',
     ], $config);
     exit;
+}
+
+if (!$hasWelcomed) {
+    tgApi('sendMessage', [
+        'chat_id' => $chatId,
+        'text' => $welcomeText,
+    ], $config);
+    $hasWelcomed = true;
 }
 
 tgApi('sendMessage', [
@@ -480,4 +540,21 @@ function callAnalyze(int $telegramUserId, string $text, array $config): ?array
         'signals' => $signals,
         'summary' => $summary,
     ];
+}
+
+function fetchLastWelcomed(PDO $pdo, int $telegramUserId): ?int
+{
+    $stmt = $pdo->prepare(
+        'SELECT welcomed FROM dialogs WHERE telegram_user_id = :telegram_user_id ORDER BY created_at DESC LIMIT 1'
+    );
+    $stmt->execute([
+        'telegram_user_id' => $telegramUserId,
+    ]);
+
+    $value = $stmt->fetchColumn();
+    if ($value === false) {
+        return null;
+    }
+
+    return (int) $value;
 }

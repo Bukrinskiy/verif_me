@@ -38,7 +38,7 @@ try {
     $pdo = getPdo();
     ensureSchema($pdo);
 
-    $dialogId = createDialog($pdo, $telegramUserId);
+    $dialogId = createDialog($pdo, $telegramUserId, 1);
     addMessage($pdo, $dialogId, 'user', $text);
     $analysisResponse = analyzeTextWithAI($text);
 

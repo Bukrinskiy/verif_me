@@ -14,7 +14,7 @@ try {
     $telegramUserId = 123456;
     $userText = 'test message';
 
-    $dialogId = createDialog($pdo, $telegramUserId);
+    $dialogId = createDialog($pdo, $telegramUserId, 1);
     addMessage($pdo, $dialogId, 'user', $userText);
     addMessage($pdo, $dialogId, 'assistant', 'ok');
     finishDialog($pdo, $dialogId, 'done');
