@@ -134,14 +134,6 @@ if (is_string($text)) {
         exit;
     }
 
-    if (!$hasWelcomed) {
-        tgApi('sendMessage', [
-            'chat_id' => $chatId,
-            'text' => $welcomeText,
-        ], $config);
-        $hasWelcomed = true;
-    }
-
     try {
         $analysis = callAnalyze($telegramUserId, $text, $config);
 
@@ -190,14 +182,6 @@ if (is_int($fileSize) && $fileSize > $maxVoiceBytes) {
         'text' => 'Слишком длинное аудио для MVP',
     ], $config);
     exit;
-}
-
-if (!$hasWelcomed) {
-    tgApi('sendMessage', [
-        'chat_id' => $chatId,
-        'text' => $welcomeText,
-    ], $config);
-    $hasWelcomed = true;
 }
 
 tgApi('sendMessage', [
