@@ -22,8 +22,10 @@ function analyzeTextWithAI(string $text): array
 
     $timeout = (int) ($config['openai_timeout_sec'] ?? 30);
 
+    $model = $config['openai_model'] ?? 'gpt-4.1';
+
     $payload = [
-        'model' => 'gpt-4o-mini',
+        'model' => $model,
         'input' => [
             [
                 'role' => 'system',
